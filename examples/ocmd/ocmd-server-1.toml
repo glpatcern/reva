@@ -87,6 +87,7 @@ mount_id = "123e4567-e89b-12d3-a456-426655440000"
 expose_data_server = true
 data_server_url = "http://localhost:19001/data"
 enable_home_creation = true
+disable_tus = true
 
 [grpc.services.storageprovider.drivers.localhome]
 user_layout = "{{.Username}}"
@@ -110,6 +111,8 @@ address = "0.0.0.0:19001"
 
 [http.services.dataprovider]
 driver = "localhome"
+temp_folder = "/var/tmp/"
+disable_tus = true
 
 [http.services.dataprovider.drivers.localhome]
 user_layout = "{{.Username}}"
