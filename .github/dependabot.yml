@@ -7,6 +7,3 @@ updates:
   commit-message:
     prefix: "[Build-deps]"
   open-pull-requests-limit: 10
-  reviewers:
-  - ishank011
-  - SamuAlfageme
