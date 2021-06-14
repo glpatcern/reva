@@ -324,7 +324,8 @@ func (s *service) InitiateFileUpload(ctx context.Context, req *provider.Initiate
 			metadata["mtime"] = string(req.Opaque.Map["X-OC-Mtime"].Value)
 		}
 	}
-	uploadIDs, err := s.storage.InitiateUpload(ctx, newRef, uploadLength, metadata)
+
+	uploadIDs, err := s.storage.InitiateUpload(ctx, newRef, uploadLength, metadata, req.Options)
 	if err != nil {
 		var st *rpc.Status
 		switch err.(type) {
