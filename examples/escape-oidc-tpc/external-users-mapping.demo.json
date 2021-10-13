@@ -1,0 +1,10 @@
+[
+	{
+		"oidc_group": "escape",
+		"username": "einstein"
+	},
+	{
+		"oidc_group": "escape/ScienceMesh",
+		"username": "richard"
+	}
+]
