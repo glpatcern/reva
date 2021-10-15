@@ -102,6 +102,8 @@ type Config struct {
 	Timeout         int64  `mapstructure:"timeout"`
 	Insecure        bool   `mapstructure:"insecure"`
 	PublicURL       string `mapstructure:"public_url"`
+	// If true, HTTP COPY will expect the HTTP-TPC (third-party copy) headers
+	EnableHTTPTpc bool `mapstructure:"enable_http_tpc"`
 }
 
 func (c *Config) init() {
