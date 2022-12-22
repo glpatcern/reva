@@ -41,6 +41,7 @@ import (
 	"github.com/cs3org/reva/pkg/rgrpc/todo/pool"
 	"github.com/cs3org/reva/pkg/rhttp"
 	"github.com/cs3org/reva/pkg/sharedconf"
+	"github.com/golang-jwt/jwt"
 	"github.com/juliangruber/go-intersect"
 	"github.com/mitchellh/mapstructure"
 	"github.com/pkg/errors"
@@ -156,50 +157,74 @@ func (am *mgr) Authenticate(ctx context.Context, _, clientSecret string) (*user.
 		return nil, nil, fmt.Errorf("oidc: error creating oidc provider: +%v", err)
 	}
 
+	var claims map[string]interface{}
 	oauth2Token := &oauth2.Token{
 		AccessToken: clientSecret,
 	}
-
 	// query the oidc provider for user info
 	userInfo, err := oidcProvider.UserInfo(ctx, oauth2.StaticTokenSource(oauth2Token))
-	if err != nil {
-		return nil, nil, fmt.Errorf("oidc: error getting userinfo: +%v", err)
-	}
+	if err == nil {
+		// claims contains the standard OIDC claims like iss, iat, aud, ... and any other non-standard one.
+		// TODO(labkode): make claims configuration dynamic from the config file so we can add arbitrary mappings from claims to user struct.
+		// For now, only the group claim is dynamic.
+		// TODO(labkode): may do like K8s does it:
+		// https://github.com/kubernetes/kubernetes/blob/master/staging/src/k8s.io/apiserver/plugin/pkg/authenticator/token/oidc/oidc.go
+		if err := userInfo.Claims(&claims); err != nil {
+			return nil, nil, fmt.Errorf("oidc: error unmarshaling userinfo claims: %v", err)
+		}
 
-	// claims contains the standard OIDC claims like iss, iat, aud, ... and any other non-standard one.
-	// TODO(labkode): make claims configuration dynamic from the config file so we can add arbitrary mappings from claims to user struct.
-	// For now, only the group claim is dynamic.
-	// TODO(labkode): may do like K8s does it: https://github.com/kubernetes/kubernetes/blob/master/staging/src/k8s.io/apiserver/plugin/pkg/authenticator/token/oidc/oidc.go
-	var claims map[string]interface{}
-	if err := userInfo.Claims(&claims); err != nil {
-		return nil, nil, fmt.Errorf("oidc: error unmarshaling userinfo claims: %v", err)
-	}
+		log.Debug().Interface("claims", claims).Interface("userInfo", userInfo).Msg("unmarshalled userinfo")
 
-	log.Debug().Interface("claims", claims).Interface("userInfo", userInfo).Msg("unmarshalled userinfo")
-
-	if claims["iss"] == nil { // This is not set in simplesamlphp
-		claims["iss"] = am.c.Issuer
-	}
-	if claims["email_verified"] == nil { // This is not set in simplesamlphp
-		claims["email_verified"] = false
-	}
-	if claims["preferred_username"] == nil {
-		claims["preferred_username"] = claims[am.c.IDClaim]
-	}
-	if claims["preferred_username"] == nil {
-		claims["preferred_username"] = claims["email"]
-	}
-	if claims["name"] == nil {
-		claims["name"] = claims[am.c.IDClaim]
-	}
-	if claims["name"] == nil {
-		return nil, nil, fmt.Errorf("no \"name\" attribute found in userinfo: maybe the client did not request the oidc \"profile\"-scope")
+		claims["sub"] = userInfo.Subject
+		if claims["iss"] == nil { // This is not set in simplesamlphp
+			claims["iss"] = am.c.Issuer
+		}
+		if claims["email_verified"] == nil { // This is not set in simplesamlphp
+			claims["email_verified"] = false
+		}
+		if claims["preferred_username"] == nil {
+			claims["preferred_username"] = claims[am.c.IDClaim]
+		}
+		if claims["preferred_username"] == nil {
+			claims["preferred_username"] = claims["email"]
+		}
+		if claims["name"] == nil {
+			claims["name"] = claims[am.c.IDClaim]
+		}
+		if claims["name"] == nil {
+			return nil, nil, fmt.Errorf("no \"name\" attribute found in userinfo: maybe the client did not request the oidc \"profile\"-scope")
+		}
+	} else {
+		// /userinfo failed
+		if am.c.UsersMapping == "" {
+			return nil, nil, fmt.Errorf("oidc: error getting userinfo: +%v", err)
+		} else {
+			// let's try and unwrap the clientSecret as a JWT, and use it as is: we may not be allowed
+			// to make a /userinfo call with external certificates if the openid claim is not there
+			// TODO: check how to validate the token, either online (call to /introspect) or offline (preferred by WLCG)
+			// ParseUnverified shall NOT be used!
+			token, _, err := new(jwt.Parser).ParseUnverified(clientSecret, jwt.MapClaims{})
+			if err != nil {
+				return nil, nil, fmt.Errorf("oidc: error parsing token: +%v", err)
+			}
+			var ok bool
+			claims, ok = token.Claims.(jwt.MapClaims)
+			if !ok {
+				return nil, nil, errors.New("oidc: error typecasting claims")
+			}
+			if claims["name"] == nil {
+				claims["name"] = claims[am.c.IDClaim]
+			}
+			log.Debug().Interface("claims", claims).Interface("token", token).Msg("unmarshalled token")
+		}
 	}
 	if claims["email"] == nil {
-		return nil, nil, fmt.Errorf("no \"email\" attribute found in userinfo: maybe the client did not request the oidc \"email\"-scope")
+		// TODO(lopresti): do we really need the email?
+		claims["email"] = "unknown@somedomain.org"
+		claims["email_verified"] = false
 	}
 
-	err = am.resolveUser(ctx, claims, userInfo.Subject)
+	err = am.resolveUser(ctx, claims)
 	if err != nil {
 		return nil, nil, errors.Wrapf(err, "oidc: error resolving username for external user '%v'", claims["email"])
 	}
@@ -302,7 +327,7 @@ func (am *mgr) getOIDCProvider(ctx context.Context) (*oidc.Provider, error) {
 	return am.provider, nil
 }
 
-func (am *mgr) resolveUser(ctx context.Context, claims map[string]interface{}, subject string) error {
+func (am *mgr) resolveUser(ctx context.Context, claims map[string]interface{}) error {
 	var (
 		value   string
 		resolve bool
@@ -318,7 +343,7 @@ func (am *mgr) resolveUser(ctx context.Context, claims map[string]interface{}, s
 		// map and discover the user's username when a mapping is defined
 		if claims[am.c.GroupClaim] == nil {
 			// we are required to perform a user mapping but the group claim is not available
-			return fmt.Errorf("no \"%s\" claim found in userinfo to map user", am.c.GroupClaim)
+			return fmt.Errorf("no \"%s\" claim found to map user", am.c.GroupClaim)
 		}
 		mappings := make([]string, 0, len(am.oidcUsersMapping))
 		for _, m := range am.oidcUsersMapping {
@@ -340,7 +365,7 @@ func (am *mgr) resolveUser(ctx context.Context, claims map[string]interface{}, s
 		}
 		resolve = true
 	} else if uid == 0 || gid == 0 {
-		value = subject
+		value = claims["sub"].(string)
 		resolve = true
 	}
 
@@ -370,10 +395,10 @@ func (am *mgr) resolveUser(ctx context.Context, claims map[string]interface{}, s
 	claims[am.c.UIDClaim] = getUserByClaimResp.GetUser().UidNumber
 	claims[am.c.GIDClaim] = getUserByClaimResp.GetUser().GidNumber
 	log := appctx.GetLogger(ctx).Debug().Str("username", value).Interface("claims", claims)
-	if uid == 0 || gid == 0 {
-		log.Msgf("resolveUser: claims overridden from '%s'", subject)
-	} else {
+	if len(am.oidcUsersMapping) > 0 {
 		log.Msg("resolveUser: claims overridden from mapped user")
+	} else {
+		log.Msg("resolveUser: claims overridden")
 	}
 	return nil
 }
