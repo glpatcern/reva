@@ -28,21 +28,32 @@ import (
 	"time"
 
 	gateway "github.com/cs3org/go-cs3apis/cs3/gateway/v1beta1"
+<<<<<<< HEAD:internal/http/services/opencloudmesh/ocmd/shares.go
 	providerpb "github.com/cs3org/go-cs3apis/cs3/storage/provider/v1beta1"
 	types "github.com/cs3org/go-cs3apis/cs3/types/v1beta1"
 	"github.com/pkg/errors"
 
+=======
+>>>>>>> 1404353f1 (ocm share notification hanling added):internal/http/services/ocmd/shares.go
 	userpb "github.com/cs3org/go-cs3apis/cs3/identity/user/v1beta1"
 	ocmcore "github.com/cs3org/go-cs3apis/cs3/ocm/core/v1beta1"
 	ocmprovider "github.com/cs3org/go-cs3apis/cs3/ocm/provider/v1beta1"
-	ocm "github.com/cs3org/go-cs3apis/cs3/sharing/ocm/v1beta1"
-
 	rpc "github.com/cs3org/go-cs3apis/cs3/rpc/v1beta1"
+<<<<<<< HEAD:internal/http/services/opencloudmesh/ocmd/shares.go
 	"github.com/cs3org/reva/internal/http/services/reqres"
 	"github.com/cs3org/reva/pkg/appctx"
 	"github.com/cs3org/reva/pkg/errtypes"
 	"github.com/cs3org/reva/pkg/rgrpc/todo/pool"
 	"github.com/cs3org/reva/pkg/utils"
+=======
+	ocm "github.com/cs3org/go-cs3apis/cs3/sharing/ocm/v1beta1"
+	providerpb "github.com/cs3org/go-cs3apis/cs3/storage/provider/v1beta1"
+	types "github.com/cs3org/go-cs3apis/cs3/types/v1beta1"
+	"github.com/cs3org/reva/v2/internal/http/services/reqres"
+	"github.com/cs3org/reva/v2/pkg/appctx"
+	"github.com/cs3org/reva/v2/pkg/rgrpc/todo/pool"
+	"github.com/cs3org/reva/v2/pkg/utils"
+>>>>>>> 1404353f1 (ocm share notification hanling added):internal/http/services/ocmd/shares.go
 	"github.com/go-playground/validator/v10"
 )
 
@@ -78,7 +89,7 @@ type createShareRequest struct {
 	Protocols         Protocols `json:"protocol"          validate:"required"`
 }
 
-// CreateShare sends all the informations to the consumer needed to start
+// CreateShare sends all the information to the consumer needed to start
 // synchronization between the two services.
 func (h *sharesHandler) CreateShare(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
@@ -182,7 +193,7 @@ func (h *sharesHandler) CreateShare(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if userRes.Status.Code != rpc.Code_CODE_OK {
+	if createShareResp.Status.Code != rpc.Code_CODE_OK {
 		// TODO: define errors in the cs3apis
 		reqres.WriteError(w, r, reqres.APIErrorServerError, "error creating ocm share", errors.New(createShareResp.Status.Message))
 		return

@@ -22,13 +22,16 @@ package ocmcore
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"time"
 
+	userpb "github.com/cs3org/go-cs3apis/cs3/identity/user/v1beta1"
 	ocmcore "github.com/cs3org/go-cs3apis/cs3/ocm/core/v1beta1"
 	ocm "github.com/cs3org/go-cs3apis/cs3/sharing/ocm/v1beta1"
 	providerpb "github.com/cs3org/go-cs3apis/cs3/storage/provider/v1beta1"
 	typesv1beta1 "github.com/cs3org/go-cs3apis/cs3/types/v1beta1"
+<<<<<<< HEAD
 	"github.com/cs3org/reva/pkg/errtypes"
 	"github.com/cs3org/reva/pkg/ocm/share"
 	"github.com/cs3org/reva/pkg/ocm/share/repository/registry"
@@ -37,6 +40,17 @@ import (
 	"github.com/cs3org/reva/pkg/rgrpc/status"
 	"github.com/cs3org/reva/pkg/utils"
 	"github.com/cs3org/reva/pkg/utils/cfg"
+=======
+	"github.com/cs3org/reva/v2/pkg/errtypes"
+	"github.com/cs3org/reva/v2/pkg/ocm/share"
+	"github.com/cs3org/reva/v2/pkg/ocm/share/repository/registry"
+	ocmuser "github.com/cs3org/reva/v2/pkg/ocm/user"
+	"github.com/cs3org/reva/v2/pkg/rgrpc"
+	"github.com/cs3org/reva/v2/pkg/rgrpc/status"
+	"github.com/cs3org/reva/v2/pkg/utils"
+	"github.com/cs3org/reva/v2/pkg/utils/cfg"
+	"github.com/rs/zerolog"
+>>>>>>> 1404353f1 (ocm share notification hanling added)
 	"google.golang.org/grpc"
 )
 
@@ -101,7 +115,11 @@ func (s *service) Close() error {
 }
 
 func (s *service) UnprotectedEndpoints() []string {
-	return []string{"/cs3.ocm.core.v1beta1.OcmCoreAPI/CreateOCMCoreShare"}
+	return []string{
+		ocmcore.OcmCoreAPI_CreateOCMCoreShare_FullMethodName,
+		ocmcore.OcmCoreAPI_UpdateOCMCoreShare_FullMethodName,
+		ocmcore.OcmCoreAPI_DeleteOCMCoreShare_FullMethodName,
+	}
 }
 
 // CreateOCMCoreShare is called when a remote OCM request comes into this reva instance.
@@ -152,5 +170,30 @@ func (s *service) UpdateOCMCoreShare(ctx context.Context, req *ocmcore.UpdateOCM
 }
 
 func (s *service) DeleteOCMCoreShare(ctx context.Context, req *ocmcore.DeleteOCMCoreShareRequest) (*ocmcore.DeleteOCMCoreShareResponse, error) {
-	return nil, errtypes.NotSupported("not implemented")
+	grantee := utils.ReadPlainFromOpaque(req.GetOpaque(), "grantee")
+	if grantee == "" {
+		return nil, errtypes.UserRequired("missing remote user id in a metadata")
+	}
+
+	user := &userpb.User{Id: ocmuser.RemoteID(&userpb.UserId{OpaqueId: grantee})}
+
+	err := s.repo.DeleteReceivedShare(ctx, user, &ocm.ShareReference{
+		Spec: &ocm.ShareReference_Id{
+			Id: &ocm.ShareId{
+				OpaqueId: req.GetId(),
+			},
+		},
+	})
+	res := &ocmcore.DeleteOCMCoreShareResponse{}
+	if err == nil {
+		res.Status = status.NewOK(ctx)
+	} else {
+		var notFound errtypes.NotFound
+		if errors.As(err, &notFound) {
+			res.Status = status.NewNotFound(ctx, "remote ocm share not found")
+		} else {
+			res.Status = status.NewInternal(ctx, "error deleting remote ocm share")
+		}
+	}
+	return res, nil
 }
