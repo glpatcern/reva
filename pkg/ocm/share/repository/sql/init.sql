@@ -81,3 +81,19 @@ CREATE TABLE IF NOT EXISTS ocm_protocol_transfer (
     size INTEGER NOT NULL,
     FOREIGN KEY (ocm_protocol_id) REFERENCES ocm_received_share_protocols(id) ON DELETE CASCADE
 );
+
+CREATE TABLE IF NOT EXISTS ocm_tokens (
+    token VARCHAR(255) NOT NULL PRIMARY KEY,
+    initiator VARCHAR(255) NOT NULL,
+    expiration DATETIME NOT NULL,
+    description VARCHAR(255) DEFAULT NULL
+);
+
+CREATE TABLE IF NOT EXISTS ocm_remote_users (
+    initiator VARCHAR(255) NOT NULL,
+    opaque_user_id VARCHAR(255) NOT NULL,
+    idp VARCHAR(255) NOT NULL,
+    email VARCHAR(255) NOT NULL,
+    display_name VARCHAR(255) NOT NULL,
+    PRIMARY KEY (initiator, opaque_user_id, idp)
+);
